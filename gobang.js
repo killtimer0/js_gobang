@@ -1,4 +1,4 @@
-const vname = 'JS五子棋', version = '2.2.2',
+const vname = 'JS五子棋', version = '2.2.3',
 KEY = 'GobangConfig'; // *Storage的键名(JSON格式)
 const updateinfo = [
 	['2.2',
@@ -6,6 +6,8 @@ const updateinfo = [
 		'.1 增加棋序数字等信息, 增加帮助页面',
 		'.1 点击棋盘获取焦点后支持键盘操作',
 		'.2 支持使用 storage 保存用户设置',
+		'.3 布局由table布局修改为flex布局',
+		'.3 增加棋盘存储, 刷新后仍保留棋盘现场',
 	],['2.1',
 		'.0 修复 AI 在必输局面下乱走的 bug',
 		'.0 拖动落子逻辑修改',
@@ -24,11 +26,12 @@ const helpmsg = [
 ];
 const endmsg = ["平局(〃'▽'〃)", "你赢了(￣▽￣)／", "胜负已定(￣.￣)"];
 const difmsg = [, , '简单', , '一般', , '较难', , '大爷'];
-// N:15,level:2,playerFirst:!0,boardSize:576,rWidth:180,godMode:!1,lineColor:'#000C',mptColor:'#0C8',moppColor:'#F80',mtipColor:'#F0F',scale:2,storage:1
+// N:15,level:2,playerFirst:!0,number:!1,boardSize:576,rWidth:180,godMode:!1,lineColor:'#000C',mptColor:'#0C8',moppColor:'#F80',mtipColor:'#F0F',scale:2,storage:1
 const defcfg = {
 	N: 15,
 	level: 2,
 	playerFirst: true,
+	number: false,
 	boardSize: 576,
 	rWidth: 180,
 	godMode: false,
@@ -299,7 +302,7 @@ if (!this.document){
 			}
 			return [false, c];
 		}
-		const branches = [16, 12, 10, 9, 8, 7, 6, 5, 5];
+		const branches = [12, 10, 9, 8, 7, 6, 5, 5];
 		function anl_proc(self, cd, alpha, beta){
 			if (cd == depth) return evaluate(all, 3 - self, Policy.Balance);
 			var n = (cd < branches.length ? branches[cd] : 4), rev, t;
@@ -335,8 +338,8 @@ if (!this.document){
 // AI 算法部分到此结束, 下面是主逻辑部分
 
 function loadGobangGame(id, workerpath, callback, cfg){
-	var container = document.getElementById(id);
-	if(!container){console.warn(`No object names '${id}'`);return false;}
+	var box = document.getElementById(id);
+	if(!box){console.warn(`No object names '${id}'`);return false;}
 
 	function loadConfig(item, nostore){
 		if (!nostore && storage != 0){
@@ -372,55 +375,41 @@ function loadGobangGame(id, workerpath, callback, cfg){
 		s[k] = v; store.setItem(KEY, JSON.stringify(s));
 	}
 
+	function tryReadBoard(){
+		var raw = tryRead('board_data'), f = !!tryRead('board_first'), s, t;
+		try{s = JSON.parse(raw)} catch (e){/* Ignore */}
+		if (Array.isArray(s)){
+			if (s.length < N * N){
+				t = [];
+				try{
+					for (var i = 0; i < s.length; i++)
+						t.push([s[i][0], s[i][1]]);
+					return [t, f];
+				} catch (e){/* Ignore */}
+			}
+		}
+		return [];
+	}
+	function tryWriteBoard(s, b){tryWrite('board_data', JSON.stringify(s)), tryWrite('board_first', b)}
+	function tryRemoveBoard(){tryRemove('board_data'), tryRemove('board_first')}
+
 	function tryGetJson(){
 		if (storage == 0) return;
 		return store.getItem(KEY);
 	}
 
-	function tryRemove(){
+	function tryRemoveAll(){
 		if (storage == 0) return;
 		store.removeItem(KEY);
 	}
 
-	var N = loadConfig('N'),
-		size = loadConfig('boardSize'),
-		rWidth = loadConfig('rWidth'),
-		scale = loadConfig('scale'),
-		godmode = loadConfig('godmode'),
-		lineColor = loadConfig('lineColor'),
-		mptColor = loadConfig('mptColor'),
-		moppColor = loadConfig('moppColor'),
-		mtipColor = loadConfig('mtipColor'),
-		nfirst = loadConfig('playerFirst'),
-		depth = loadConfig('level')
-	;
-
-	var state, win = 0;
-	var worker;
-
-	var boardSize = size * scale;
-	var border = size / 30;
-	var canvas = newe('canvas');
-	canvas.width = canvas.height = boardSize;
-	canvas.style.width = canvas.style.height = px(size);
-	canvas.style.margin = px(border);
-	var ctx = canvas.getContext('2d');
-
-	var funcbar = newe('table');
-	funcbar.style.width = px(rWidth);
-	funcbar.style.height = px(size);
-	funcbar.style.padding = px(border);
-	funcbar.style.paddingBottom = '0';
-
-	var tipbar = newe('span');
-	var table = newe('table');
-	table.tabIndex = 0;
-	table.style.margin = 'auto';
-	table.style.userSelect = 'none';
-	table.style.position = 'relative';
-	initSubDialog();
-
-	var funcbar = newe('td');
+	function tryRemove(k){
+		if (storage == 0) return;
+		var raw = store.getItem(KEY), s;
+		try{s = JSON.parse(raw)} catch (e){}
+		if (!s) return;
+		s[k] = undefined; store.setItem(KEY, JSON.stringify(s));
+	}
 
 	function newp(g, t, c){
 		var p = newe(c ? c : 'p');
@@ -434,31 +423,81 @@ function loadGobangGame(id, workerpath, callback, cfg){
 		appe(g, h);
 		return g;
 	}
-	{
-		function versionObj(foot){
-			var e = newe('span');
-			e.style.color = lineColor, e.style.fontSize = px(border * 0.7);
-			e.innerText = `${vname} v${version}`;
-			appe(foot, e);
-		}
-		var row = newe('tr');
-		var item = newe('td');
-		appe(item, canvas); appe(row, item);
 
-		item = newe('td');
-		item.style.width = px(rWidth); item.style.height = px(size);
-		var t = newe('table');
-		t.style.width = px(rWidth);
-		t.style.height = px(size);
-		t.style.padding = px(border);
-		t.style.paddingBottom = '0';
-		var r2 = newe('tr');
-		appe(r2, funcbar); appe(t, r2);
-		r2 = newe('tfoot');
-		r2.style.textAlign = 'center';
-		r2.style.cursor = 'pointer';
-		versionObj(r2);
-		r2.addEventListener('click', function(e){showDialogWithOkBtn(function(box, b, destroyf){
+	var N = loadConfig('N'),
+		size = loadConfig('boardSize'),
+		rWidth = loadConfig('rWidth'),
+		scale = loadConfig('scale'),
+		godmode = loadConfig('godmode'),
+		lineColor = loadConfig('lineColor'),
+		mptColor = loadConfig('mptColor'),
+		moppColor = loadConfig('moppColor'),
+		mtipColor = loadConfig('mtipColor'),
+		nfirst = loadConfig('playerFirst'),
+		depth = loadConfig('level'),
+		dispSteps = loadConfig('number')
+	;
+
+	var state, win = 0;
+	var worker;
+
+	var boardSize = size * scale;
+	var border = size / 30;
+
+	var div = newe('div');
+	var main = newe('div');
+	main.tabIndex = 0;
+	main.style.margin = 'auto';
+	main.style.userSelect = 'none';
+	main.style.textAlign = 'left';
+	main.style.position = 'relative';
+	main.style.width = 'fit-content';
+	main.style.display = 'flex';
+	main.style.flexDirection = 'column';
+
+	var body = newe('div');
+	body.style.flexGrow = 1;
+	body.style.display = 'flex';
+	var tipbar = newe('span');
+	tipbar.style.display = 'block';
+	tipbar.style.margin = px(border);
+	tipbar.style.marginTop = 0;
+
+	var canvas = newe('canvas');
+	canvas.width = canvas.height = boardSize;
+	canvas.style.width = canvas.style.height = px(size);
+	canvas.style.margin = px(border);
+	var ctx = canvas.getContext('2d');
+
+	var funcbar = newe('div');
+	funcbar.style.width = px(rWidth);
+	funcbar.style.padding = px(border);
+	funcbar.style.display = 'flex';
+	funcbar.style.flexDirection = 'column';
+
+	var oppbar = newe('div');
+	oppbar.style.flexGrow = 1;
+	oppbar.style.display = 'flex';
+	oppbar.style.flexDirection = 'column';
+	oppbar.style.justifyContent = 'center';
+	oppbar.style.alignItems = 'center';
+	var verobj = newe('span');
+
+	appe(funcbar, oppbar), appe(funcbar, verobj);
+	appe(body, canvas), appe(body, funcbar);
+	appe(main, body), appe(main, tipbar);
+	appe(div, main), appe(box, div);
+
+	initVersion(verobj);
+	initControls(oppbar);
+	initSubDialog(main);
+
+	function initVersion(o){
+		o.style.color = '#444';
+		o.style.fontSize = px(border * 0.7);
+		o.style.textAlign = 'center';
+		o.innerText = `${vname} v${version}`;
+		o.addEventListener('click', function(){showDialogWithOkBtn(function(box, b, destroyf){
 			newp(box, vname, 'h2');
 			newp(box, '版本: ' + version + '<br>作者: KillTimer');
 			newp(box, '更新内容', 'h2');
@@ -473,37 +512,60 @@ function loadGobangGame(id, workerpath, callback, cfg){
 			newp(box, v);
 			b.unshift({name: '帮助', func: function(){destroyf(), helpDlg()}});
 		})});
-		appe(t, r2);
-		appe(item, t); appe(row, item);
-
-		appe(table, row);
-		row = newe('tr');
-		item = newe('td');
-		item.rowSpan = '2';
-		appe(item, tipbar); appe(row, item);
-
-		appe(table, row);
-		appe(container, table);
 	}
-	function workerReset(){
-		if (worker) worker.terminate();
-		worker = new Worker(workerpath);
-		worker.addEventListener('message', workerCallback);
-	}
-	function workerCallback(e){
-		var data = e.data;
-		if (inTip && state == State.Player){
-			var pos = data[1];
-			clearInterval(timer);
-			if (data[0]) tipsxy(pos[1], pos[0]), markTip = pos, drawBoard();
-			else tips('没有可行方案');
-			inTip = false;
-		}else if (!inTip && state == State.Opposite && data[0]){
-			var pos = data[1];
-			markOpposite = pos;
-			turn(pos[1], pos[0]);
+
+	function initControls(o){
+		var btnWidth = rWidth / 2;
+		var first = true;
+		function adjustCtl(ctl){
+			ctl.style.width = px(btnWidth);
+			ctl.style.display = 'block';
+			ctl.style.paddingTop = ctl.style.paddingBottom = px(3);
+			if (first) first = false;
+			else ctl.style.marginTop = px(border);
+			ctl.style.textAlign = 'center';
+		}
+
+		// who is first
+		var selbox = newe('select'), item;
+		selbox.style.appearance = 'none';
+		item = newe('option');
+		item.value = 0; item.innerText = '我先手';
+		appe(selbox, item);
+		item = newe('option');
+		item.value = 1; item.innerText = '我后手';
+		appe(selbox, item);
+		var i = nfirst ? 0 : 1;
+		selbox[i].selected = true;
+		adjustCtl(selbox);
+		selbox.addEventListener('change', function(e){nfirst = selbox.value == 0; tryWrite('playerFirst', nfirst)});
+		appe(o, selbox);
+
+		// search depth
+		var difbox = newe('select');
+		difbox.style.appearance = 'none';
+		for (var i = 0; i < difmsg.length; i++){
+			if (!difmsg[i]) continue;
+			item = newe('option');
+			item.value = i; item.innerText = difmsg[i];
+			if (i == depth) item.selected = true;
+			appe(difbox, item);
+		}
+		adjustCtl(difbox);
+		difbox.addEventListener('change', function(e){var i = parseInt(difbox.value); if (i > 0) depth = i, tryWrite('level', i);});
+		appe(o, difbox);
+
+		// buttons
+		var btn;
+		for (const k in btns){
+			btn = newe('button');
+			adjustCtl(btn);
+			btn.innerText = btns[k];
+			btn.addEventListener('click', buttonf(onCmd, btns[k]));
+			appe(o, btn);
 		}
 	}
+
 	var vmask, vbox, inUI;
 	function initSubDialog(){
 		function overlayObj(o, z){
@@ -523,8 +585,8 @@ function loadGobangGame(id, workerpath, callback, cfg){
 		vbox.style.userSelect = 'text';
 		vbox.hidden = true;
 		vbox.style.overflowY = 'auto';
-		appe(table, vbox);
-		appe(table, vmask);
+		appe(main, vbox);
+		appe(main, vmask);
 		inUI = false;
 	}
 	function showDialog(initf){
@@ -637,55 +699,23 @@ function loadGobangGame(id, workerpath, callback, cfg){
 			}
 		}
 	}
-	initControls();
-	function initControls(){
-		var btnWidth = rWidth / 2;
-		function adjustCtl(ctl){
-			ctl.style.width = px(btnWidth);
-			ctl.style.display = 'block';
-			ctl.style.marginLeft = ctl.style.marginRight = 'auto';
-			ctl.style.marginBottom = px(border);
-			ctl.style.paddingTop = ctl.style.paddingBottom = px(3);
-			ctl.style.textAlign = 'center';
-		}
 
-		// who is first
-		var selbox = newe('select'), item;
-		selbox.style.appearance = 'none';
-		item = newe('option');
-		item.value = 0; item.innerText = '我先手';
-		appe(selbox, item);
-		item = newe('option');
-		item.value = 1; item.innerText = '我后手';
-		appe(selbox, item);
-		var i = nfirst ? 0 : 1;
-		selbox[i].selected = true;
-		adjustCtl(selbox);
-		selbox.addEventListener('change', function(e){nfirst = selbox.value == 0; tryWrite('playerFirst', nfirst)});
-		appe(funcbar, selbox);
-
-		// search depth
-		var difbox = newe('select');
-		difbox.style.appearance = 'none';
-		for (var i = 0; i < difmsg.length; i++){
-			if (!difmsg[i]) continue;
-			item = newe('option');
-			item.value = i; item.innerText = difmsg[i];
-			if (i == depth) item.selected = true;
-			appe(difbox, item);
-		}
-		adjustCtl(difbox);
-		difbox.addEventListener('change', function(e){var i = parseInt(difbox.value); if (i > 0) depth = i, tryWrite('level', i);});
-		appe(funcbar, difbox);
-
-		// buttons
-		var btn;
-		for (const k in btns){
-			btn = newe('button');
-			adjustCtl(btn);
-			btn.innerText = btns[k];
-			btn.addEventListener('click', buttonf(onCmd, btns[k]));
-			appe(funcbar, btn);
+	function workerReset(){
+		if (worker) worker.terminate();
+		worker = new Worker(workerpath);
+		worker.addEventListener('message', workerCallback);
+	}
+	function workerCallback(e){
+		var data = e.data;
+		if (inTip && state == State.Player){
+			var pos = data[1];
+			clearInterval(timer);
+			if (data[0]) tipsxy(pos[1], pos[0]), markTip = pos, drawBoard();
+			else tips('没有可行方案');
+			inTip = false;
+		}else if (!inTip && state == State.Opposite && data[0]){
+			var pos = data[1];
+			turn(pos[1], pos[0]);
 		}
 	}
 
@@ -742,9 +772,16 @@ function loadGobangGame(id, workerpath, callback, cfg){
 	function turn(x, y){
 		switch (state){
 			case State.Prepare:{
+				if (steps.length){
+					var oppLast = !!first == (steps.length % 2 == 0);
+					var p = steps.pop();
+					for (var i = 0; i < steps.length; i++) board[steps[i][0]][steps[i][1]] = i % 2 + 1;
+					state = oppLast ? State.Opposite : State.Player;
+					turn(p[1], p[0]);
+					return;
+				}
 				state = first ? State.Player : State.Opposite;
 				var t = Math.floor(N / 2);
-				if (!first) markOpposite = [t, t];
 				turn(t, t);
 			}break;
 			case State.Player:{
@@ -762,6 +799,7 @@ function loadGobangGame(id, workerpath, callback, cfg){
 				drawBoard();
 			}break;
 			case State.Opposite:{
+				markOpposite = [y, x];
 				step(x, y, 2);
 				state = State.Player;
 				if (timer) clearInterval(timer), timer = false, dots = 0;
@@ -770,6 +808,7 @@ function loadGobangGame(id, workerpath, callback, cfg){
 				drawBoard();
 			}break;
 			case State.End:{
+				tryRemoveBoard();
 				tips(endmsg[win]);
 			}break;
 			default: break;
@@ -796,6 +835,7 @@ function loadGobangGame(id, workerpath, callback, cfg){
 					var p = steps.pop();
 					board[p[0]][p[1]] = 0;
 				}
+				tryWriteBoard(steps, first);
 				if (steps.length > 0){
 					var p = steps[steps.length - 1];
 					markOpposite = [p[0], p[1]];
@@ -815,9 +855,10 @@ function loadGobangGame(id, workerpath, callback, cfg){
 		timer = setIntervalx(tipf, 1000);
 		inTip = true;
 	}
-	var dispSteps = false;
+	var dispSteps;
 	function revOptStep(){
 		dispSteps = !dispSteps;
+		tryWrite('number', dispSteps);
 		drawBoard();
 	}
 	const infoType = [
@@ -856,30 +897,14 @@ function loadGobangGame(id, workerpath, callback, cfg){
 	];
 	function infoDlg(){
 		showDialogWithOkBtn(function(box, b, destroyf){
-			var datainfo = `${storemsg[storage]}(${storage})`;
 
+			// 基本信息
 			newp(box, btns.info, 'h2');
 			newp(box, `第 ${steps.length} 手`);
 			newp(box, `先手: ${first ? '玩家' : '电脑'}`);
 			newp(box, `难度: ${difmsg[depth]}(${depth})`);
 
-			var g = newg('<h3>存储</h3>');
-			var h = newe('h4');
-			h.innerHTML = datainfo;
-			h.style.marginTop = h.style.marginBottom = 0;
-			appe(g, h);
-			if (storage != 0){
-				var json = tryGetJson();
-				if (!json || json == '') json = '无存储的数据';
-				var e = newe('p');
-				e.style.maxHeight = px(size / 4);
-				e.style.overflowY = 'auto';
-				e.style.wordBreak = 'break-word';
-				e.innerText = json;
-				appe(g, e);
-			}
-			appe(box, g);
-
+			// 棋局(debug可用)
 			g = newg('<h3>棋局信息</h3>');
 			for (var i in infoType){
 				var t = infoType[i];
@@ -895,7 +920,27 @@ function loadGobangGame(id, workerpath, callback, cfg){
 				appe(g, e);
 			}
 			appe(box, g);
-			b.unshift({name: '清空存储数据', func: function(){tryRemove(), destroyf(), infoDlg()}});
+
+			// storage
+			var datainfo = `${KEY}: ${storemsg[storage]} (${storage})`;
+			var g = newg('<h3>存储</h3>');
+			var h = newe('p');
+			h.innerHTML = datainfo;
+			h.style.marginTop = h.style.marginBottom = 0;
+			appe(g, h);
+			if (storage != 0){
+				var json = tryGetJson();
+				if (!json || json == '') json = '无存储的数据';
+				var e = newe('p');
+				e.style.maxHeight = px(size / 3);
+				e.style.overflowY = 'auto';
+				e.style.wordBreak = 'break-word';
+				e.innerText = json;
+				appe(g, e);
+			}
+			appe(box, g);
+
+			b.unshift({name: '清空存储数据', func: function(){tryRemoveAll(), destroyf(), infoDlg()}});
 		})
 	}
 	function helpDlg(){
@@ -918,21 +963,27 @@ function loadGobangGame(id, workerpath, callback, cfg){
 	function step(x, y, i){
 		board[y][x] = i;
 		steps.push([y, x]);
+		tryWriteBoard(steps, first);
 	}
-	function restart(){
+	function restart(loadCfg){
 		workerReset(); inTip = false;
 		if (timer) clearInterval(timer), timer = false;
 		state = State.Prepare; first = nfirst;
 		board = narr(N, function(){return narr(N, zerof)});
 		markPointer = markOpposite = markTip = false;
-		steps = []; turn();
+		steps = null;
+		var tfirst;
+		if (loadCfg) [steps, tfirst] = tryReadBoard();
+		if (steps) first = tfirst; else steps = [];
+		tryWriteBoard(steps, first);
+		turn();
 	}
 
-	if (typeof (callback) === 'function') callback(table, canvas, funcbar, tipbar);
+	if (typeof (callback) === 'function') callback(main, canvas, funcbar, tipbar);
 
 	var board, markPointer, markOpposite, markTip, steps, first, inTip;
 
-	restart();
+	restart(true);
 
 	function tips(msg){tipbar.innerText = msg;}
 	function tipsxy(x, y){tips(`[${y}, ${x}]`);}
@@ -1001,7 +1052,7 @@ function loadGobangGame(id, workerpath, callback, cfg){
 		if (markPointer) tryturn(markPointer[1], markPointer[0]);
 		e.preventDefault();
 	});
-	table.addEventListener('keydown', function(e){
+	main.addEventListener('keydown', function(e){
 		if (markPointer && !inUI && !e.ctrlKey && !e.altKey && !e.shiftKey && !e.metaKey){
 			var delta, handle = true;
 			switch (e.key){
